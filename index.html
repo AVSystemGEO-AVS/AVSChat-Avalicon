@@ -11,18 +11,25 @@
   <script>
     const SIP_DOMAIN = 'pabxavalicon.avsti.com.br';
   
-   function processNumber(numeroRaw) {
-      let s = String(numeroRaw || '').replace(/\D/g, "");
+    function processNumber(numeroRaw) {
+      
+      let s = String(numeroRaw || "").replace(/\D/g, "");
+      
       if (s.startsWith("55")) s = s.slice(2);
-      if (s.startsWith("31")) s = s.slice(2);
-      if (s.startsWith("031")) {
-        s = s.slice(3);
-      }
-      const ddd = s.slice(0,2) || "";
-      let assinante = s.slice(2) || "";
+    
+      if (s.startsWith("031")) s = s.slice(3);
+          
+      const ddd = s.slice(0, 2);
+      let assinante = s.slice(2);
+    
       if (assinante.length === 8) assinante = "9" + assinante;
-      let numeroFinal = (ddd === '31') ? ddd + assinante : '031' + ddd + assinante;
-      return numeroFinal.replace(/\D/g,'');
+    
+      if (ddd === "31") {
+        return assinante;
+      }
+  
+      const finalNum = `031${ddd}${assinante}`;
+      return finalNum;
     }
   
     function extractRawNumber(obj) {
