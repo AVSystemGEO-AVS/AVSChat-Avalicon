@@ -12,74 +12,178 @@
     const SIP_DOMAIN = 'pabxavalicon.avsti.com.br';
   
     function processNumber(numeroRaw) {
+    let s = String(numeroRaw || "").replace(/\D/g, "");
+    
+    if (s.startsWith("55")) s = s.slice(2);
+    
+    if (s.startsWith("031")) s = s.slice(3);
+    
+    const ddd = s.slice(0, 2);
+    let assinante = s.slice(2);
+    
+    if (assinante.length === 8 && assinante[0] !== "3") {
+      assinante = "9" + assinante;
+    }
+    
+    if (ddd === "31") {
+      return assinante.replace(/\D/g, "");
+    } else {
+      return (`031${ddd}${assinante}`).replace(/\D/g, "");
+    }
+  }
+
+  function parseRawForDecision(numeroRaw) {
+    let s = String(numeroRaw || "").replace(/\D/g, "");
+    if (s.startsWith("55")) s = s.slice(2);
+    if (s.startsWith("031")) s = s.slice(3);
+    const ddd = s.slice(0,2) || "";
+    const assinanteOrig = s.slice(2) || ""; 
+    return { ddd, assinanteOrig };
+  }
+
+  function buildFinalNumberFromParsed(parsed, useWith9) {
+    
+    let assinante = parsed.assinanteOrig || "";
+    
+    if (assinante.length === 8 && useWith9) {
+      assinante = "9" + assinante;
+    } else if (assinante.length === 9 && !useWith9 && assinante.startsWith("9")) {
+      assinante = assinante.slice(1);
+    }
+    
+    if (parsed.ddd === "31") {
+      return assinante.replace(/\D/g, "");
+    } else {
+      return (`031${parsed.ddd}${assinante}`).replace(/\D/g, "");
+    }
+  }
+
+  function extractRawNumber(obj) {
+    if (!obj) return null;
+    
+    const keys = ['numero','telefone','phone','phoneNumber','mobile','celular','contactNumber'];
+    
+    for (const k of keys) if (obj[k]) return obj[k];
+    
+    if (obj.contato) for (const k of keys) if (obj.contato[k]) return obj.contato[k];
+    
+    if (typeof obj === 'string') return obj;
+    
+    for (const k in obj) {
+      try {
+        const v = obj[k];
+        if (v && (typeof v === 'string' || typeof v === 'number')) {
+          const digits = String(v).replace(/\D/g,'');
+          if (digits.length >= 8) return v;
+        }
+      } catch(e){}
+    }
+    return null;
+  }
+
+  function openSipUriWithFallback(sipUri) {
+    try {
       
-      let s = String(numeroRaw || "").replace(/\D/g, "");
-      
-      if (s.startsWith("55")) s = s.slice(2);
-    
-      if (s.startsWith("031")) s = s.slice(3);
-          
-      const ddd = s.slice(0, 2);
-      let assinante = s.slice(2);
-    
-      if (assinante.length === 8) assinante = "9" + assinante;
-    
-      if (ddd === "31") {
-        return assinante;
-      }
-  
-      const finalNum = `031${ddd}${assinante}`;
-      return finalNum;
+      const a = document.createElement('a');
+      a.href = sipUri;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => document.body.removeChild(a), 500);
+    } catch (e) {
+      console.error(e);
+      try { window.location.href = sipUri; } catch(e2){ console.error(e2); }
     }
-  
-    function extractRawNumber(obj) {
-      if (!obj) return null;
-      const keys = ['numero','telefone','phone','phoneNumber','mobile','celular','contactNumber'];
-      for (const k of keys) if (obj[k]) return obj[k];
-      if (obj.contato) for (const k of keys) if (obj.contato[k]) return obj.contato[k];
-      if (typeof obj === 'string') return obj;
-      for (const k in obj) {
-        try {
-          const v = obj[k];
-          if (v && (typeof v === 'string' || typeof v === 'number')) {
-            const digits = String(v).replace(/\D/g,'');
-            if (digits.length >= 8) return v;
-          }
-        } catch(e){}
-      }
-      return null;
-    }
-  
-    function openSipUriWithFallback(sipUri) {
-      try { window.location.href = sipUri; } catch(e){ console.error(e); }
-    }
-  
-    window.WlExtension.initialize({
-      buttons: {
-        'attendance-view': [
-          {
-            icon_url: 'https://img.icons8.com/?size=15&id=9730&format=png&color=000000',
-            text: 'PABX',
-            
-            callback: (atendimento) => {
-              const raw = extractRawNumber(atendimento) || extractRawNumber(atendimento?.contato);
-              if (!raw) {
-                return window.WlExtension.alert({ message: 'Número não encontrado no atendimento.', variant: 'error' });
-              }
-              const numero = processNumber(raw);
-              const sipUri = `sip:${numero}@${SIP_DOMAIN}`;
-  
+  }
+
+  window.WlExtension.initialize({
+    buttons: {
+      'attendance-view': [
+        {
+          icon_url: 'https://img.icons8.com/?size=15&id=9730&format=png&color=000000',
+          text: 'PABX',
+          callback: (atendimento) => {
+            const raw = extractRawNumber(atendimento) || extractRawNumber(atendimento?.contato);
+            if (!raw) {
+              return window.WlExtension.alert({ message: 'Número não encontrado no atendimento.', variant: 'error' });
+            }
+
+            const parsed = parseRawForDecision(raw);
+            const ddd = parsed.ddd;
+            const assinanteOrig = parsed.assinanteOrig || "";
+
+            const is8 = assinanteOrig.length === 8;
+            const startsWith3 = assinanteOrig.startsWith("3");
+            const isFixed = is8 && startsWith3;   
+            const isMobileCandidate = (is8 && !startsWith3) || (assinanteOrig.length === 9);
+
+            function formatDisplay(useWith9) {
+              const finalNum = buildFinalNumberFromParsed(parsed, useWith9);
+              return finalNum;
+            }
+
+            let defaultUseWith9;
+            if (isFixed) defaultUseWith9 = false;
+            else if (isMobileCandidate) defaultUseWith9 = true;
+            else {              
+              const p = processNumber(raw);              
+              defaultUseWith9 = (p.replace(/^031/, '').length > assinanteOrig.length);
+            }
+
+            if (isFixed) {
+              // pergunta para fixo 
+              const display = formatDisplay(false); 
               window.WlExtension.confirmDialog({
                 title: 'Confirmar ligação',
-                text: `Deseja ligar para ${numero}?`,
-                callback: (ok) => { if (ok) openSipUriWithFallback(sipUri); }
+                text: `Deseja ligar para esse número (fixo)? ${display}`,
+                callback: (ok) => {
+                  if (ok) {
+                    // ligar usando sem 9
+                    const finalNum = buildFinalNumberFromParsed(parsed, false);
+                    const sipUri = `sip:${finalNum}@${SIP_DOMAIN}`;
+                    openSipUriWithFallback(sipUri);
+                  } else {
+                    // usuário disse NÃO: adiciona 9 e executa
+                    const finalNum = buildFinalNumberFromParsed(parsed, true);
+                    const sipUri = `sip:${finalNum}@${SIP_DOMAIN}`;
+                    openSipUriWithFallback(sipUri);
+                  }
+                }
+              });
+            } else if (isMobileCandidate) {
+              // pergunta para celular 
+              const display = formatDisplay(true); 
+              window.WlExtension.confirmDialog({
+                title: 'Confirmar ligação',
+                text: `Deseja ligar para esse número (celular)? ${display}`,
+                callback: (ok) => {
+                  if (ok) {
+                    // ligar usando com 9
+                    const finalNum = buildFinalNumberFromParsed(parsed, true);
+                    const sipUri = `sip:${finalNum}@${SIP_DOMAIN}`;
+                    openSipUriWithFallback(sipUri);
+                  } else {
+                    // usuário disse NÃO: remove 9 e executa
+                    const finalNum = buildFinalNumberFromParsed(parsed, false);
+                    const sipUri = `sip:${finalNum}@${SIP_DOMAIN}`;
+                    openSipUriWithFallback(sipUri);
+                  }
+                }
+              });
+            } else {
+              const fallbackNum = processNumber(raw);
+              window.WlExtension.confirmDialog({
+                title: 'Confirmar ligação',
+                text: `Deseja ligar para ${fallbackNum}?`,
+                callback: (ok) => { if (ok) openSipUriWithFallback(`sip:${fallbackNum}@${SIP_DOMAIN}`); }
               });
             }
           }
-        ]
-      }
-    });
-  </script>
+        }
+      ]
+    }
+  });
+</script>
 
 </body>
 </html>
